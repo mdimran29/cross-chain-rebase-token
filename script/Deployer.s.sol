@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script} from "forge-std/Script.sol";
+import {console2} from "forge-std/console2.sol";
 
 import {CCIPLocalSimulatorFork, Register} from "@chainlink-local/src/ccip/CCIPLocalSimulatorFork.sol";
 
@@ -29,6 +30,9 @@ contract TokenAndPoolDeployer is Script {
         TokenAdminRegistry(networkDetails.tokenAdminRegistryAddress).acceptAdminRole(address(token));
         TokenAdminRegistry(networkDetails.tokenAdminRegistryAddress).setPool(address(token), address(pool));
         vm.stopBroadcast();
+
+        console2.log("token:", address(token));
+        console2.log("pool:", address(pool));
     }
 }
 
@@ -38,5 +42,7 @@ contract VaultDeployer is Script {
         vault = new Vault(IRebaseToken(_rebaseToken));
         IRebaseToken(_rebaseToken).grantMintAndBurnRole(address(vault));
         vm.stopBroadcast();
+
+        console2.log("vault:", address(vault));
     }
 }   

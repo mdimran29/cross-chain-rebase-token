@@ -153,15 +153,14 @@ contract CrossChainTest is Test {
 
         chains[0] = TokenPool.ChainUpdate({
             remoteChainSelector: remoteNetworkDetails.chainSelector,
-            allowed: true ,
-            remotePoolAddress: remotePoolAddresses[0],
+            remotePoolAddresses: remotePoolAddresses,
             remoteTokenAddress: abi.encode(address(remoteToken)),
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
            
         });
         uint64[] memory remoteChainSelectorsToRemove = new uint64[](0);
-        localPool.applyChainUpdates(chains);
+        localPool.applyChainUpdates(remoteChainSelectorsToRemove, chains);
         vm.stopPrank();
     }
 

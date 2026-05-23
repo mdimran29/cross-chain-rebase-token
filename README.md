@@ -1,165 +1,218 @@
-# Foundry Cross Chain Rebase Token
+# Cross-Chain Rebase Token (Foundry + Chainlink CCIP)
 
-# About
+An educational Solidity project implementing a **cross-chain rebasing token** system using **Chainlink CCIP**.
 
-This project is a cross-chain rebase token where users can depost ETH in exchange for rebase tokens which accrue rewards over time.
+Users deposit ETH into a vault on the source chain, receive `RebaseToken` (`RBT`), accrue linear interest over time, and can bridge tokens cross-chain while carrying their user-specific interest rate metadata.
 
-- [Foundry Cross Chain Rebase Token](#foundry-cross-chain-rebase-token)
-- [About](#about)
-- [Getting Started](#getting-started)
-  - [Requirements](#requirements)
-- [Updates](#updates)
-- [Usage](#usage)
-  - [Start a local node](#start-a-local-node)
-  - [Deploy](#deploy)
-  - [Deploy - Other Network](#deploy---other-network)
-  - [Testing](#testing)
-    - [Testing Coverage](#testing-coverage)
-- [Deployment to a testnet or mainnet](#deployment-to-a-testnet-or-mainnet)
-  - [Scripts](#scripts)
-- [Formatting](#formatting)
-- [Thank you!](#thank-you)
-    - [NOTES](#notes)
+---
 
-# Getting Started
+## Architecture
+
+### Core contracts
+
+- `src/RebaseToken.sol`
+  - ERC20 rebasing token with per-user interest tracking.
+  - Interest rate can only decrease globally.
+  - Mint/burn restricted via `MINT_AND_BURN_ROLE`.
+
+- `src/Vault.sol`
+  - Accepts ETH deposits and mints `RBT` via `RebaseToken.mint`.
+  - Redeems by burning `RBT` and sending ETH back.
+
+- `src/RebaseTokenPool.sol`
+  - Custom CCIP token pool built on Chainlink `TokenPool`.
+  - On source chain (`lockOrBurn`): burns bridged amount and encodes user interest rate.
+  - On destination chain (`releaseOrMint`): mints amount using bridged user interest rate.
+
+### Cross-chain behavior
+
+1. User deposits ETH in `Vault` and receives `RBT`.
+2. User bridges through CCIP router.
+3. Pool burns on source chain and includes interest metadata in pool data.
+4. Destination pool mints to receiver with preserved user interest rate.
+
+---
+
+## Project layout
+
+- `src/` — protocol contracts
+- `script/` — deployment/config/bridge interaction scripts
+- `test/` — unit + fork-based cross-chain tests
+- `bridgeToZKsync.sh` — end-to-end shell workflow for Sepolia ↔ zkSync Sepolia
+- `foundry.toml` — Foundry config and remappings
+
+---
 
 ## Requirements
 
-- [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
-  - You'll know you did it right if you can run `git --version` and you see a response like `git version x.x.x`
-- [foundry](https://getfoundry.sh/)
-  - You'll know you did it right if you can run `forge --version` and you see a response like `forge 0.2.0 (816e00b 2023-03-16T00:05:26.396218Z)`
+- [Foundry](https://getfoundry.sh/) (`forge`, `cast`, `anvil`)
+- Git
+- Access to RPC URLs for fork tests (Sepolia + Arbitrum Sepolia)
 
-## Quickstart
+Verify:
 
-```
+- `forge --version`
+- `cast --version`
+
+---
+
+## Quickstart
+
+```bash
 git clone https://github.com/mdimran29/cross-chain-rebase-token.git
 cd cross-chain-rebase-token
+
+# Pull submodules used by this repo
+git submodule update --init --recursive
+
+# Install CCIP dependency expected by remappings
+forge install smartcontractkit/ccip
+
 forge build
 ```
 
-# Updates
+---
 
-# Usage
+## Configuration
 
-## Start a local node
+### RPC endpoints
 
+Fork tests use Foundry RPC aliases (`eth-sepolia`, `arb-sepolia`).
+
+You can either:
+
+- update `foundry.toml` `[rpc_endpoints]`, or
+- export environment variables and adjust your local config accordingly.
+
+### Wallet / broadcast environment (for scripts)
+
+Typical script execution needs:
+
+- a configured Foundry account such as `my-wallet`
+- chain-specific RPC URL(s)
+- LINK balances for CCIP fees where applicable
+
+> Use test-only wallets. Never use production keys for experimentation.
+
+To keep your key out of `.env`, import it once into Foundry's local keystore and then use `--account my-wallet` for deployments and transactions.
+
+---
+
+## Build, test, and quality
+
+### Build
+
+```bash
+forge build
 ```
-make anvil
-```
 
-## Deploy
+### Unit + fuzz tests
 
-This will default to your local node. You need to have it running in another terminal in order for it to deploy.
-
-```
-make deploy
-```
-
-## Deploy - Other Network
-
-[See below](#deployment-to-a-testnet-or-mainnet)
-
-## Testing
-
-We talk about 4 test tiers on Updraft:
-
-1. Unit
-2. Integration
-3. Forked
-4. Staging
-
-In this repo we cover #1 and Fuzzing.
-
-```
+```bash
 forge test
 ```
 
-### Testing Coverage
+### Run a specific suite
 
+```bash
+forge test --match-contract RebaseTokenTest -vv
+forge test --match-contract CrossChainTest -vv
 ```
+
+### Coverage
+
+```bash
 forge coverage
 ```
 
-and for coverage based testing:
+### Formatting
 
-```
-forge coverage --report debug
-```
-
-# Deployment to a testnet or mainnet
-
-1. Setup environment variables
-
-You'll want to set your `SEPOLIA_RPC_URL` and `PRIVATE_KEY` as environment variables. You can add them to a `.env` file, similar to what you see in `.env.example`.
-
-- `PRIVATE_KEY`: The private key of your account (like from [metamask](https://metamask.io/)). **NOTE:** FOR DEVELOPMENT, PLEASE USE A KEY THAT DOESN'T HAVE ANY REAL FUNDS ASSOCIATED WITH IT.
-  - You can [learn how to export it here](https://metamask.zendesk.com/hc/en-us/articles/360015289632-How-to-Export-an-Account-Private-Key).
-- `SEPOLIA_RPC_URL`: This is url of the sepolia testnet node you're working with. You can get setup with one for free from [Alchemy](https://alchemy.com/?a=673c802981)
-
-Optionally, add your `ETHERSCAN_API_KEY` if you want to verify your contract on [Etherscan](https://etherscan.io/).
-
-1. Get testnet ETH
-
-Head over to [faucets.chain.link](https://faucets.chain.link/) and get some testnet ETH. You should see the ETH show up in your metamask.
-
-2. Deploy
-
-```
-make deploy ARGS="--network sepolia"
-```
-
-## Scripts
-
-Instead of scripts, we can directly use the `cast` command to interact with the contract.
-
-For example, on Sepolia:
-
-1. Get some RebaseTokens
-
-```
-cast send <vault-contract-address> "deposit()" --value 0.1ether --rpc-url $SEPOLIA_RPC_URL --wallet
-```
-
-2. Redeem RebaseTokens for ETH
-
-```
-cast send <vault-contractaddress> "redeem(uint256)" 10000000000000000 --rpc-url $SEPOLIA_RPC_URL --wallet
-```
-
-## Estimate gas
-
-You can estimate how much gas things cost by running:
-
-```
-forge snapshot
-```
-
-And you'll see an output file called `.gas-snapshot`
-
-# Formatting
-
-To run code formatting:
-
-```
+```bash
 forge fmt
 ```
 
-# Thank you!
+---
 
-## Project design and assumptions
+## Script usage
 
-WHATEVER INTEREST THEY DEPOSIT WITH, THEY STICK WITH
+### 1) Deploy token + pool
 
-This project is a cross-chain rebase token that integrates Chainlink CCIP to enable users to bridge their tokens cross-chain
+Script: `script/Deployer.s.sol:TokenAndPoolDeployer`
 
-### NOTES
+Deploys:
 
-- assumed rewards are in contract
-- Protocol rewards early users and users which bridge to the L2
-  - The interest rate decreases discretely
-  - The interest rate when a user bridges is bridges with them and stays static. So, by bridging you get to keep your high interest rate.
-- You can only deposit and withdraw on the L1.
-- You cannot earn interest in the time while bridging.
+- `RebaseToken`
+- `RebaseTokenPool`
 
-Don't forget to bridge back the amount of interest they accrued on the destination chain in that time
+Also configures:
+
+- mint/burn role for pool
+- token admin registration + pool registration in CCIP registries
+
+### 2) Deploy vault
+
+Script: `script/Deployer.s.sol:VaultDeployer`
+
+Deploys `Vault` and grants vault mint/burn role on token.
+
+### 3) Configure remote pool mappings
+
+Script: `script/ConfigurePool.s.sol:ConfigurePoolScript`
+
+Adds remote chain + remote pool/token mappings and optional rate limiter config via `applyChainUpdates`.
+
+### 4) Bridge tokens
+
+Script: `script/BridgeTokens.s.sol:BridgeTokensScript`
+
+Builds CCIP message, approves LINK/token, computes CCIP fee, and sends via router.
+
+### 5) Deposit / redeem helpers
+
+Script: `script/Interactions.s.sol`
+
+- `DepositScript`
+- `RedeemScript`
+
+---
+
+## Tests included
+
+- `test/RebaseToken.t.sol`
+  - deposit/redeem flows
+  - linear interest growth checks
+  - transfer behavior + user interest inheritance
+  - access-control and interest-rate monotonicity checks
+
+- `test/CrossChain.t.sol`
+  - Sepolia ↔ Arbitrum Sepolia fork setup via `CCIPLocalSimulatorFork`
+  - bi-directional pool configuration
+  - bridge all tokens / bridge back / multiple bridge scenarios
+
+---
+
+## Notes & assumptions
+
+- The protocol assumes rewards/funding exist in vault liquidity for redemptions.
+- Global interest rate can only move downward.
+- A user’s effective rate is preserved and bridged across chains.
+- This repository is educational and not audited.
+
+---
+
+## Sepolia deployment
+
+The current live Sepolia deployment uses the following addresses:
+
+- `RebaseToken`: `0x46948AC074C0a9E9734F8AEe55a41d542CdD3b19`
+- `RebaseTokenPool`: `0x088659FB202C501095850b3EcBD6A3a205030E69`
+- `Vault`: `0x27748128Ec88727FCc40e5d49B237c5A8c84E1ea`
+
+---
+
+## Acknowledgements
+
+- [Foundry](https://getfoundry.sh/)
+- [OpenZeppelin Contracts](https://github.com/OpenZeppelin/openzeppelin-contracts)
+- [Chainlink CCIP](https://docs.chain.link/ccip)
+- [Chainlink Local](https://github.com/smartcontractkit/chainlink-local)

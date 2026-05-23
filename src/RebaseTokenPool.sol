@@ -9,7 +9,7 @@ import {IRebaseToken} from "./interfaces/IRebaseToken.sol";
 
 contract RebaseTokenPool is TokenPool {
     constructor(IERC20 token, address[] memory allowlist, address rmnProxy, address router)
-        TokenPool(token,  allowlist, rmnProxy, router)
+        TokenPool(token, ERC20(address(token)).decimals(), allowlist, rmnProxy, router)
     {}
 
     /// @notice burns the tokens on the source chain

@@ -6,10 +6,18 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
-rpc_endpoints={eth-sepolia = "https://eth-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx" , arb-sepolia = "https://arb-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx"}
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@ccip/=lib/ccip/",
+    "@chainlink-local/=lib/chainlink-local/",
+    "@chainlink/contracts-ccip/=lib/ccip/contracts/",
+    "@chainlink/contracts/=lib/chainlink-local/lib/chainlink-brownie-contracts/contracts/",
+    "@chainlink/local/src/=lib/chainlink-local/src/",
+    "chainlink-local/=lib/chainlink-local/src/"
+]
 
-remappings = ["@openzeppelin=lib/openzeppelin-contracts",
-    "@ccip=lib/ccip",
-    "@chainlink-local=lib/chainlink-local"]
+[rpc_endpoints]
+eth-sepolia = "https://eth-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx"
+arb-sepolia = "https://arb-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
