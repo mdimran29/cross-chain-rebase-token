@@ -12,6 +12,28 @@ library Errors {
     error Vault__RedeemFailed();
     error Vault__DepositsPaused();
     error Vault__RedemptionsPaused();
+    error Vault__DepositBelowMinimum(uint256 amount, uint256 minimum);
+    error Vault__DepositExceedsPerTxCap(uint256 amount, uint256 cap);
+    error Vault__DepositExceedsAddressCap(uint256 newTotal, uint256 cap);
+    error Vault__DepositExceedsTvlCap(uint256 newTvl, uint256 cap);
+    error Vault__DailyNetFlowLimitExceeded(uint256 netOutflow, uint256 limit);
+    error Vault__FeeExceedsCap(uint256 bps, uint256 cap);
+    error Vault__FeeTransferFailed();
+    error Vault__NotQueue(address caller);
+    error Vault__QueueAlreadySet();
+    error Vault__CannotRescueProtocolAsset();
+    error Vault__DepositsBlockedDuringRecovery();
+
+    // ---- Treasury ----
+    error Treasury__InsufficientReserve(uint256 requested, uint256 available);
+    error Treasury__TransferFailed();
+    error Treasury__FeeBucketNotFundable();
+
+    // ---- WithdrawalQueue ----
+    error Queue__NotVault(address caller);
+    error Queue__InvalidStatus();
+    error Queue__InsufficientLiquidity(uint256 requested, uint256 available);
+    error Queue__NotRequestOwner(address caller, address owner);
 
     // ---- RebaseToken ----
     error RebaseToken__InterestRateCanOnlyDecrease(uint256 currentInterestRate, uint256 newInterestRate);

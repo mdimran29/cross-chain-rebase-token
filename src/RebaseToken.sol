@@ -142,6 +142,12 @@ contract RebaseToken is ERC20, AccessControl, Pausable {
     /// @param _value The number of tokens to mint.
     /// @param _userInterestRate The interest rate of the user. This is either the contract interest rate if the user is depositing or the user's interest rate from the source token if the user is bridging.
     /// @dev this function increases the total supply.
+    /// @dev L10 fix: a bridge-in can carry a stale, higher historical rate from before the source
+    /// chain's global rate decreased. Clamping to the current global rate first, then to the
+    /// user's own existing rate if they already hold a balance, means minting can never *raise*
+    /// a user's entitlement above what the "rate only decreases" policy currently allows —
+    /// closing the round-trip-to-relock-a-higher-rate exploit. Deposits are unaffected: Vault
+    /// always passes the current global rate, so the clamp is a no-op there.
     function mint(address _to, uint256 _value, uint256 _userInterestRate)
         public
         onlyRole(Roles.MINT_AND_BURN_ROLE)
@@ -149,8 +155,14 @@ contract RebaseToken is ERC20, AccessControl, Pausable {
     {
         // Mints any existing interest that has accrued since the last time the user's balance was updated.
         _mintAccruedInterest(_to);
-        // Sets the users interest rate to either their bridged value if they are bridging or to the current interest rate if they are depositing.
-        s_userInterestRate[_to] = _userInterestRate;
+        uint256 existingBalance = super.balanceOf(_to);
+        uint256 clampedRate = _userInterestRate > s_interestRate ? s_interestRate : _userInterestRate;
+        if (existingBalance == 0) {
+            s_userInterestRate[_to] = clampedRate;
+        } else {
+            uint256 existingRate = s_userInterestRate[_to];
+            s_userInterestRate[_to] = clampedRate < existingRate ? clampedRate : existingRate;
+        }
         _mint(_to, _value);
     }
 

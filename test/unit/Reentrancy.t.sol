@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {RebaseToken} from "../../src/RebaseToken.sol";
 import {Vault} from "../../src/Vault.sol";
+import {Treasury} from "../../src/treasury/Treasury.sol";
 import {IRebaseToken} from "../../src/interfaces/IRebaseToken.sol";
 
 /// @notice Re-enters `redeem` from its `receive()` hook, simulating a malicious depositor
@@ -37,6 +38,7 @@ contract MaliciousRedeemer {
 contract ReentrancyTest is Test {
     RebaseToken public rebaseToken;
     Vault public vault;
+    Treasury public treasury;
     MaliciousRedeemer public attacker;
 
     address public owner = makeAddr("owner");
@@ -45,7 +47,8 @@ contract ReentrancyTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         rebaseToken = new RebaseToken();
-        vault = new Vault(IRebaseToken(address(rebaseToken)));
+        treasury = new Treasury();
+        vault = new Vault(IRebaseToken(address(rebaseToken)), address(treasury));
         rebaseToken.grantMintAndBurnRole(address(vault));
         vm.stopPrank();
 

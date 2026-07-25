@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {RebaseToken} from "../../src/RebaseToken.sol";
 import {Vault} from "../../src/Vault.sol";
+import {Treasury} from "../../src/treasury/Treasury.sol";
 import {IRebaseToken} from "../../src/interfaces/IRebaseToken.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 import {Errors} from "../../src/libraries/Errors.sol";
@@ -12,6 +13,7 @@ import {Errors} from "../../src/libraries/Errors.sol";
 contract PauseTest is Test {
     RebaseToken public rebaseToken;
     Vault public vault;
+    Treasury public treasury;
 
     address public owner = makeAddr("owner");
     address public pauser = makeAddr("pauser");
@@ -22,7 +24,8 @@ contract PauseTest is Test {
     function setUp() public {
         vm.startPrank(owner);
         rebaseToken = new RebaseToken();
-        vault = new Vault(IRebaseToken(address(rebaseToken)));
+        treasury = new Treasury();
+        vault = new Vault(IRebaseToken(address(rebaseToken)), address(treasury));
         rebaseToken.grantMintAndBurnRole(address(vault));
         rebaseToken.grantRole(Roles.PAUSER_ROLE, pauser);
         rebaseToken.grantRole(Roles.UNPAUSER_ROLE, unpauser);

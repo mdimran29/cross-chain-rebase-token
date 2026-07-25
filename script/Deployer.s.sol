@@ -13,6 +13,8 @@ import {TokenAdminRegistry} from "@ccip/contracts/tokenAdminRegistry/TokenAdminR
 import {RebaseToken} from "../src/RebaseToken.sol";
 import {RebaseTokenPool} from "../src/RebaseTokenPool.sol";
 import {Vault} from "../src/Vault.sol";
+import {Treasury} from "../src/treasury/Treasury.sol";
+import {WithdrawalQueue} from "../src/vault/WithdrawalQueue.sol";
 
 import {IRebaseToken} from "../src/interfaces/IRebaseToken.sol";
 import {Roles} from "../src/libraries/Roles.sol";
@@ -42,13 +44,22 @@ contract TokenAndPoolDeployer is Script {
 }
 
 contract VaultDeployer is Script {
-    function run(address _rebaseToken) public returns (Vault vault) {
+    /// @notice Deploys Treasury, Vault, and WithdrawalQueue together and wires them up.
+    /// WithdrawalQueue must be deployed after Vault (it needs Vault's address in its own
+    /// constructor) so it's wired via the one-time `setWithdrawalQueue` setter rather than a
+    /// constructor arg, avoiding a circular deploy dependency.
+    function run(address _rebaseToken) public returns (Vault vault, Treasury treasury, WithdrawalQueue queue) {
         vm.startBroadcast();
-        vault = new Vault(IRebaseToken(_rebaseToken));
+        treasury = new Treasury();
+        vault = new Vault(IRebaseToken(_rebaseToken), address(treasury));
+        queue = new WithdrawalQueue(address(vault));
+        vault.setWithdrawalQueue(address(queue));
         IRebaseToken(_rebaseToken).grantMintAndBurnRole(address(vault));
         vm.stopBroadcast();
 
         console2.log("vault:", address(vault));
+        console2.log("treasury:", address(treasury));
+        console2.log("withdrawalQueue:", address(queue));
     }
 }
 

@@ -17,6 +17,7 @@ import {RebaseToken} from "../src/RebaseToken.sol";
 import {RebaseTokenPool} from "../src/RebaseTokenPool.sol";
 
 import {Vault} from "../src/Vault.sol";
+import {Treasury} from "../src/treasury/Treasury.sol";
 import {IRebaseToken} from "../src/interfaces/IRebaseToken.sol";
 
 // Tests to include
@@ -49,6 +50,7 @@ contract CrossChainTest is Test {
     RegistryModuleOwnerCustom registryModuleOwnerCustomarbSepolia;
 
     Vault vault;
+    Treasury treasury;
 
     // SourceDeployer sourceDeployer;
 
@@ -82,7 +84,8 @@ contract CrossChainTest is Test {
             sepoliaNetworkDetails.chainSelector
         );
         // deploy the vault
-        vault = new Vault(IRebaseToken(address(sourceRebaseToken)));
+        treasury = new Treasury();
+        vault = new Vault(IRebaseToken(address(sourceRebaseToken)), address(treasury));
         // add rewards to the vault
         vm.deal(address(vault), 1e18);
         // Set pool on the token contract for permissions on Sepolia
