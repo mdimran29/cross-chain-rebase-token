@@ -5,19 +5,53 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-
+optimizer = true
+optimizer_runs = 200
 remappings = [
-    "@openzeppelin/=lib/openzeppelin-contracts/",
-    "@ccip/=lib/ccip/",
+    "@openzeppelin/contracts@4.8.3/=lib/chainlink-local/src/vendor/openzeppelin-solidity/v4.8.3/contracts/",
+    "@openzeppelin/contracts@5.0.2/=lib/chainlink-local/src/vendor/openzeppelin-solidity/v5.0.2/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@ccip/=lib/chainlink-local/lib/chainlink-ccip/chains/evm/",
     "@chainlink-local/=lib/chainlink-local/",
-    "@chainlink/contracts-ccip/=lib/ccip/contracts/",
-    "@chainlink/contracts/=lib/chainlink-local/lib/chainlink-brownie-contracts/contracts/",
+    "@chainlink/contracts-ccip/=lib/chainlink-local/lib/chainlink-ccip/chains/evm/",
+    "@chainlink/contracts/=lib/chainlink-local/lib/chainlink-evm/contracts/",
     "@chainlink/local/src/=lib/chainlink-local/src/",
     "chainlink-local/=lib/chainlink-local/src/"
 ]
 
+[profile.default.fuzz]
+runs = 256
+
+[profile.ci]
+src = "src"
+out = "out"
+libs = ["lib"]
+optimizer = true
+optimizer_runs = 200
+remappings = [
+    "@openzeppelin/contracts@4.8.3/=lib/chainlink-local/src/vendor/openzeppelin-solidity/v4.8.3/contracts/",
+    "@openzeppelin/contracts@5.0.2/=lib/chainlink-local/src/vendor/openzeppelin-solidity/v5.0.2/contracts/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "@ccip/=lib/chainlink-local/lib/chainlink-ccip/chains/evm/",
+    "@chainlink-local/=lib/chainlink-local/",
+    "@chainlink/contracts-ccip/=lib/chainlink-local/lib/chainlink-ccip/chains/evm/",
+    "@chainlink/contracts/=lib/chainlink-local/lib/chainlink-evm/contracts/",
+    "@chainlink/local/src/=lib/chainlink-local/src/",
+    "chainlink-local/=lib/chainlink-local/src/"
+]
+
+[profile.ci.fuzz]
+runs = 1000
+
+[profile.ci.invariant]
+runs = 256
+
 [rpc_endpoints]
-eth-sepolia = "https://eth-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx"
-arb-sepolia = "https://arb-sepolia.g.alchemy.com/v2/CPR0cLOJftUDcSvqM150GE8VhQb2eARx"
+eth-sepolia = "https://eth-sepolia.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
+eth-mainnet = "https://eth-mainnet.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
+arb-sepolia = "https://arb-sepolia.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
+arb-mainnet = "https://arb-mainnet.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
+zksync-sepolia = "https://zksync-sepolia.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
+zksync-mainnet = "https://zksync-mainnet.g.alchemy.com/v2/tdUVfZ_vEW8KeClcwRJNM"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

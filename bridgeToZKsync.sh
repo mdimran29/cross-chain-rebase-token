@@ -65,16 +65,20 @@ echo "Vault address: $VAULT_ADDRESS"
 
 # Configure the pool on Sepolia
 echo "Configuring the pool on Sepolia..."
+# Rate limiter starting values from config/chains.json (5% of expected circulating
+# supply per lane as capacity, refilling over 4h) instead of disabled (false 0 0).
 # uint64 remoteChainSelector,
-#         address remotePoolAddress, /
-#         address remoteTokenAddress, /
-#         bool outboundRateLimiterIsEnabled, false 
-#         uint128 outboundRateLimiterCapacity, 0
-#         uint128 outboundRateLimiterRate, 0
-#         bool inboundRateLimiterIsEnabled, false 
-#         uint128 inboundRateLimiterCapacity, 0 
-#         uint128 inboundRateLimiterRate 0 
-forge script ./script/ConfigurePool.s.sol:ConfigurePoolScript --rpc-url ${SEPOLIA_RPC_URL} --account my-wallet --broadcast --sig "run(address,uint64,address,address,bool,uint128,uint128,bool,uint128,uint128)" ${SEPOLIA_POOL_ADDRESS} ${ZKSYNC_SEPOLIA_CHAIN_SELECTOR} ${ZKSYNC_POOL_ADDRESS} ${ZKSYNC_REBASE_TOKEN_ADDRESS} false 0 0 false 0 0
+#         address remotePoolAddress,
+#         address remoteTokenAddress,
+#         bool outboundRateLimiterIsEnabled, true
+#         uint128 outboundRateLimiterCapacity, 500e18
+#         uint128 outboundRateLimiterRate, 500e18 / 4h
+#         bool inboundRateLimiterIsEnabled, true
+#         uint128 inboundRateLimiterCapacity, 500e18
+#         uint128 inboundRateLimiterRate 500e18 / 4h
+RATE_LIMIT_CAPACITY=500000000000000000000
+RATE_LIMIT_RATE=34722222222222222
+forge script ./script/ConfigurePool.s.sol:ConfigurePoolScript --rpc-url ${SEPOLIA_RPC_URL} --account my-wallet --broadcast --sig "run(address,uint64,address,address,bool,uint128,uint128,bool,uint128,uint128)" ${SEPOLIA_POOL_ADDRESS} ${ZKSYNC_SEPOLIA_CHAIN_SELECTOR} ${ZKSYNC_POOL_ADDRESS} ${ZKSYNC_REBASE_TOKEN_ADDRESS} true ${RATE_LIMIT_CAPACITY} ${RATE_LIMIT_RATE} true ${RATE_LIMIT_CAPACITY} ${RATE_LIMIT_RATE}
 
 # Deposit funds to the vault
 echo "Depositing funds to the vault on Sepolia..."
@@ -84,7 +88,7 @@ cast send ${VAULT_ADDRESS} --value ${AMOUNT} --rpc-url ${SEPOLIA_RPC_URL} --acco
 
 # Configure the pool on ZKsync
 echo "Configuring the pool on ZKsync..."
-cast send ${ZKSYNC_POOL_ADDRESS}  --rpc-url ${ZKSYNC_SEPOLIA_RPC_URL} --account my-wallet "applyChainUpdates(uint64[],(uint64,bytes[],bytes,(bool,uint128,uint128),(bool,uint128,uint128))[])" "[${SEPOLIA_CHAIN_SELECTOR}]" "[(${SEPOLIA_CHAIN_SELECTOR},[$(cast abi-encode "f(address)" ${SEPOLIA_POOL_ADDRESS})],$(cast abi-encode "f(address)" ${SEPOLIA_REBASE_TOKEN_ADDRESS}),(false,0,0),(false,0,0))]"
+cast send ${ZKSYNC_POOL_ADDRESS}  --rpc-url ${ZKSYNC_SEPOLIA_RPC_URL} --account my-wallet "applyChainUpdates(uint64[],(uint64,bytes[],bytes,(bool,uint128,uint128),(bool,uint128,uint128))[])" "[${SEPOLIA_CHAIN_SELECTOR}]" "[(${SEPOLIA_CHAIN_SELECTOR},[$(cast abi-encode "f(address)" ${SEPOLIA_POOL_ADDRESS})],$(cast abi-encode "f(address)" ${SEPOLIA_REBASE_TOKEN_ADDRESS}),(true,${RATE_LIMIT_CAPACITY},${RATE_LIMIT_RATE}),(true,${RATE_LIMIT_CAPACITY},${RATE_LIMIT_RATE}))]"
 
 # Bridge the funds using the script to zksync 
 echo "Bridging the funds using the script to ZKsync..."

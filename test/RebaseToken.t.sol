@@ -7,6 +7,8 @@ import {RebaseToken} from "../src/RebaseToken.sol";
 import {Vault} from "../src/Vault.sol";
 
 import {IRebaseToken} from "../src/interfaces/IRebaseToken.sol";
+import {Errors} from "../src/libraries/Errors.sol";
+import {Roles} from "../src/libraries/Roles.sol";
 
 contract RebaseTokenTest is Test {
     RebaseToken public rebaseToken;
@@ -26,6 +28,7 @@ contract RebaseTokenTest is Test {
         rebaseToken = new RebaseToken();
         vault = new Vault(IRebaseToken(address(rebaseToken)));
         rebaseToken.grantMintAndBurnRole(address(vault));
+        rebaseToken.grantRole(Roles.RATE_ADMIN_ROLE, owner);
         vm.stopPrank();
     }
 
@@ -211,7 +214,7 @@ contract RebaseTokenTest is Test {
         uint256 initialInterestRate = rebaseToken.getInterestRate();
         newInterestRate = bound(newInterestRate, initialInterestRate, type(uint96).max);
         vm.prank(owner);
-        vm.expectPartialRevert(bytes4(RebaseToken.RebaseToken__InterestRateCanOnlyDecrease.selector));
+        vm.expectPartialRevert(bytes4(Errors.RebaseToken__InterestRateCanOnlyDecrease.selector));
         rebaseToken.setInterestRate(newInterestRate);
         assertEq(rebaseToken.getInterestRate(), initialInterestRate);
     }

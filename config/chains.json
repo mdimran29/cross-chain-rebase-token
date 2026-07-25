@@ -1,0 +1,31 @@
+{
+  "_comment": "Phase 0 starting values. capacity ~= 5% of expected circulating supply per lane; rate = capacity / 4h (14400s). These are placeholder testnet values — retune before mainnet using real supply projections.",
+  "lanes": [
+    {
+      "name": "eth-sepolia<->arb-sepolia",
+      "outboundRateLimiter": {
+        "isEnabled": true,
+        "capacity": "500000000000000000000",
+        "rate": "34722222222222222"
+      },
+      "inboundRateLimiter": {
+        "isEnabled": true,
+        "capacity": "500000000000000000000",
+        "rate": "34722222222222222"
+      }
+    },
+    {
+      "name": "eth-sepolia<->zksync-sepolia",
+      "outboundRateLimiter": {
+        "isEnabled": true,
+        "capacity": "500000000000000000000",
+        "rate": "34722222222222222"
+      },
+      "inboundRateLimiter": {
+        "isEnabled": true,
+        "capacity": "500000000000000000000",
+        "rate": "34722222222222222"
+      }
+    }
+  ]
+}

@@ -4,13 +4,13 @@ pragma solidity ^0.8.24;
 import {console, Test} from "forge-std/Test.sol";
 
 import {CCIPLocalSimulatorFork, Register} from "@chainlink-local/src/ccip/CCIPLocalSimulatorFork.sol";
-import {TokenPool} from "@ccip/contracts/src/v0.8/ccip/pools/TokenPool.sol";
-import {RegistryModuleOwnerCustom} from "@ccip/contracts/src/v0.8/ccip/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
-import {TokenAdminRegistry} from "@ccip/contracts/src/v0.8/ccip/tokenAdminRegistry/TokenAdminRegistry.sol";
-import {RateLimiter} from "@ccip/contracts/src/v0.8/ccip/libraries/RateLimiter.sol";
-import {IERC20} from "@ccip/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
-import {IRouterClient} from "@ccip/contracts/src/v0.8/ccip/interfaces/IRouterClient.sol";
-import {Client} from "@ccip/contracts/src/v0.8/ccip/libraries/Client.sol";
+import {TokenPool} from "@ccip/contracts/pools/TokenPool.sol";
+import {RegistryModuleOwnerCustom} from "@ccip/contracts/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
+import {TokenAdminRegistry} from "@ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
+import {RateLimiter} from "@ccip/contracts/libraries/RateLimiter.sol";
+import {IERC20} from "@openzeppelin/contracts@4.8.3/token/ERC20/IERC20.sol";
+import {IRouterClient} from "@ccip/contracts/interfaces/IRouterClient.sol";
+import {Client} from "@ccip/contracts/libraries/Client.sol";
 
 import {RebaseToken} from "../src/RebaseToken.sol";
 
@@ -78,7 +78,8 @@ contract CrossChainTest is Test {
             IERC20(address(sourceRebaseToken)),
             allowlist,
             sepoliaNetworkDetails.rmnProxyAddress,
-            sepoliaNetworkDetails.routerAddress
+            sepoliaNetworkDetails.routerAddress,
+            sepoliaNetworkDetails.chainSelector
         );
         // deploy the vault
         vault = new Vault(IRebaseToken(address(sourceRebaseToken)));
@@ -113,7 +114,8 @@ contract CrossChainTest is Test {
             IERC20(address(destRebaseToken)),
             allowlist,
             arbSepoliaNetworkDetails.rmnProxyAddress,
-            arbSepoliaNetworkDetails.routerAddress
+            arbSepoliaNetworkDetails.routerAddress,
+            arbSepoliaNetworkDetails.chainSelector
         );
         // Set pool on the token contract for permissions on Arbitrum
         destRebaseToken.grantMintAndBurnRole(address(destPool));
@@ -129,6 +131,11 @@ contract CrossChainTest is Test {
         vm.stopPrank();
     }
 
+    // Phase 0 starting values (see config/chains.json): capacity ~= 5% of expected
+    // circulating supply per lane, refilling over 4h.
+    uint128 public constant RATE_LIMIT_CAPACITY = 500_000e18;
+    uint128 public constant RATE_LIMIT_RATE = uint128(uint256(500_000e18) / 4 hours);
+
     function configureTokenPool(
         uint256 fork,
         TokenPool localPool,
@@ -136,28 +143,40 @@ contract CrossChainTest is Test {
         IRebaseToken remoteToken,
         Register.NetworkDetails memory remoteNetworkDetails
     ) public {
+        configureTokenPool(fork, localPool, remotePool, remoteToken, remoteNetworkDetails, true);
+    }
+
+    function configureTokenPool(
+        uint256 fork,
+        TokenPool localPool,
+        TokenPool remotePool,
+        IRebaseToken remoteToken,
+        Register.NetworkDetails memory remoteNetworkDetails,
+        bool rateLimitsEnabled
+    ) public {
         vm.selectFork(fork);
         vm.startPrank(owner);
         TokenPool.ChainUpdate[] memory chains = new TokenPool.ChainUpdate[](1);
         bytes[] memory remotePoolAddresses = new bytes[](1);
         remotePoolAddresses[0] = abi.encode(address(remotePool));
 
+        //uint64 remoteChainSelector; // ──╮ Remote chain selector
+        // bool allowed; // ────────────────╯ Whether the chain should be enabled
+        // bytes remotePoolAddress; //        Address of the remote pool, ABI encoded in the case of a remote EVM chain.
+        // bytes remoteTokenAddress; //       Address of the remote token, ABI encoded in the case of a remote EVM chain.
+        // RateLimiter.Config outboundRateLimiterConfig; // Outbound rate limited config, meaning the rate limits for all of the onRamps for the given chain
+        //  RateLimiter.Config inboundRateLimiterConfig; // Inbound rate limited config, meaning the rate limits for all of the offRamps for the given chain
 
-    //uint64 remoteChainSelector; // ──╮ Remote chain selector
-   // bool allowed; // ────────────────╯ Whether the chain should be enabled
-   // bytes remotePoolAddress; //        Address of the remote pool, ABI encoded in the case of a remote EVM chain.
-   // bytes remoteTokenAddress; //       Address of the remote token, ABI encoded in the case of a remote EVM chain.
-   // RateLimiter.Config outboundRateLimiterConfig; // Outbound rate limited config, meaning the rate limits for all of the onRamps for the given chain
-  //  RateLimiter.Config inboundRateLimiterConfig; // Inbound rate limited config, meaning the rate limits for all of the offRamps for the given chain
-
+        RateLimiter.Config memory rateLimiterConfig = rateLimitsEnabled
+            ? RateLimiter.Config({isEnabled: true, capacity: RATE_LIMIT_CAPACITY, rate: RATE_LIMIT_RATE})
+            : RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0});
 
         chains[0] = TokenPool.ChainUpdate({
             remoteChainSelector: remoteNetworkDetails.chainSelector,
             remotePoolAddresses: remotePoolAddresses,
             remoteTokenAddress: abi.encode(address(remoteToken)),
-            outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
-            inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
-           
+            outboundRateLimiterConfig: rateLimiterConfig,
+            inboundRateLimiterConfig: rateLimiterConfig
         });
         uint64[] memory remoteChainSelectorsToRemove = new uint64[](0);
         localPool.applyChainUpdates(remoteChainSelectorsToRemove, chains);
@@ -197,10 +216,11 @@ contract CrossChainTest is Test {
             alice, IRouterClient(localNetworkDetails.routerAddress).getFee(remoteNetworkDetails.chainSelector, message)
         );
         vm.startPrank(alice);
-        IERC20(localNetworkDetails.linkAddress).approve(
-            localNetworkDetails.routerAddress,
-            IRouterClient(localNetworkDetails.routerAddress).getFee(remoteNetworkDetails.chainSelector, message)
-        ); // Approve the fee
+        IERC20(localNetworkDetails.linkAddress)
+            .approve(
+                localNetworkDetails.routerAddress,
+                IRouterClient(localNetworkDetails.routerAddress).getFee(remoteNetworkDetails.chainSelector, message)
+            ); // Approve the fee
         // log the values before bridging
         uint256 balanceBeforeBridge = IERC20(address(localToken)).balanceOf(alice);
         console.log("Local balance before bridge: %d", balanceBeforeBridge);
@@ -211,18 +231,26 @@ contract CrossChainTest is Test {
         assertEq(sourceBalanceAfterBridge, balanceBeforeBridge - amountToBridge);
         vm.stopPrank();
 
+        // get initial balance on the destination chain, before routing the message
         vm.selectFork(remoteFork);
-        // Pretend it takes 15 minutes to bridge the tokens
-        vm.warp(block.timestamp + 900);
-        // get initial balance on Arbitrum
         uint256 initialArbBalance = IERC20(address(remoteToken)).balanceOf(alice);
         console.log("Remote balance before bridge: %d", initialArbBalance);
+
+        // Pretend it takes 15 minutes to bridge the tokens
+        vm.warp(block.timestamp + 900);
+        // switchChainAndRouteMessage must be called while the SOURCE fork is still active:
+        // it reads vm.activeFork() internally to identify the source router/onRamp, then
+        // switches to the destination fork (forkId) itself to deliver the message.
+        vm.selectFork(localFork);
         ccipLocalSimulatorFork.switchChainAndRouteMessage(remoteFork);
 
         console.log("Remote user interest rate: %d", remoteToken.getUserInterestRate(alice));
         uint256 destBalance = IERC20(address(remoteToken)).balanceOf(alice);
         console.log("Remote balance after bridge: %d", destBalance);
-        assertEq(destBalance, initialArbBalance + amountToBridge);
+        // initialArbBalance was read before the simulated 900s bridge delay, so any
+        // pre-existing destination balance may have accrued a small amount of interest
+        // in the interim; allow a tight tolerance rather than asserting exact equality.
+        assertApproxEqAbs(destBalance, initialArbBalance + amountToBridge, 5);
     }
 
     function testBridgeAllTokens() public {
@@ -368,9 +396,81 @@ contract CrossChainTest is Test {
             sourceRebaseToken
         );
     }
+
+    /// @notice Phase 0: with rate limits enabled, a bridge amount that exceeds the
+    /// outbound bucket capacity must be throttled (revert), proving the limiter is
+    /// actually wired up rather than silently disabled as before.
+    function testBridgeRevertsWhenExceedingRateLimitCapacity() public {
+        configureTokenPool(
+            sepoliaFork, sourcePool, destPool, IRebaseToken(address(destRebaseToken)), arbSepoliaNetworkDetails, true
+        );
+        configureTokenPool(
+            arbSepoliaFork, destPool, sourcePool, IRebaseToken(address(sourceRebaseToken)), sepoliaNetworkDetails, true
+        );
+
+        vm.selectFork(sepoliaFork);
+        uint256 amountOverCapacity = uint256(RATE_LIMIT_CAPACITY) + 1;
+        vm.deal(alice, amountOverCapacity);
+        vm.startPrank(alice);
+        Vault(payable(address(vault))).deposit{value: amountOverCapacity}();
+        IERC20(address(sourceRebaseToken)).approve(sepoliaNetworkDetails.routerAddress, amountOverCapacity);
+
+        Client.EVMTokenAmount[] memory tokenToSendDetails = new Client.EVMTokenAmount[](1);
+        tokenToSendDetails[0] = Client.EVMTokenAmount({token: address(sourceRebaseToken), amount: amountOverCapacity});
+        Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+            receiver: abi.encode(alice),
+            data: "",
+            tokenAmounts: tokenToSendDetails,
+            extraArgs: "",
+            feeToken: sepoliaNetworkDetails.linkAddress
+        });
+        vm.stopPrank();
+
+        ccipLocalSimulatorFork.requestLinkFromFaucet(
+            alice,
+            IRouterClient(sepoliaNetworkDetails.routerAddress).getFee(arbSepoliaNetworkDetails.chainSelector, message)
+        );
+        vm.startPrank(alice);
+        IERC20(sepoliaNetworkDetails.linkAddress)
+            .approve(
+                sepoliaNetworkDetails.routerAddress,
+                IRouterClient(sepoliaNetworkDetails.routerAddress)
+                    .getFee(arbSepoliaNetworkDetails.chainSelector, message)
+            );
+
+        // Sending more than the bucket capacity in a single message must be throttled.
+        vm.expectRevert();
+        IRouterClient(sepoliaNetworkDetails.routerAddress).ccipSend(arbSepoliaNetworkDetails.chainSelector, message);
+        vm.stopPrank();
+    }
+
+    /// @notice A bridge amount within capacity still succeeds once limits are enabled —
+    /// proving the limiter throttles excess flow without blocking normal-sized transfers.
+    function testBridgeSucceedsWithinRateLimitCapacity() public {
+        configureTokenPool(
+            sepoliaFork, sourcePool, destPool, IRebaseToken(address(destRebaseToken)), arbSepoliaNetworkDetails, true
+        );
+        configureTokenPool(
+            arbSepoliaFork, destPool, sourcePool, IRebaseToken(address(sourceRebaseToken)), sepoliaNetworkDetails, true
+        );
+
+        vm.selectFork(sepoliaFork);
+        vm.deal(alice, SEND_VALUE);
+        vm.startPrank(alice);
+        Vault(payable(address(vault))).deposit{value: SEND_VALUE}();
+        vm.stopPrank();
+
+        bridgeTokens(
+            SEND_VALUE,
+            sepoliaFork,
+            arbSepoliaFork,
+            sepoliaNetworkDetails,
+            arbSepoliaNetworkDetails,
+            sourceRebaseToken,
+            destRebaseToken
+        );
+    }
 }
-
-
 
 // pragma solidity ^0.8.24;
 
@@ -403,7 +503,7 @@ contract CrossChainTest is Test {
 
 //     Register.NetworkDetails sepoliaNetworkDetails;
 //     Register.NetworkDetails arbSepoliaNetworkDetails;
-         
+
 //     function setUp() public {
 //           sepoliaFork = vm.createSelectFork("eth-sepolia");
 //         arbSepoliaFork = vm.createFork("arb-sepolia");
@@ -434,7 +534,7 @@ contract CrossChainTest is Test {
 //         vm.stopPrank();
 
 //         //2. Deploy and configure on arb-sepolia
-//         vm.selectFork(arbSepoliaFork);  
+//         vm.selectFork(arbSepoliaFork);
 
 //         arbSepoliaNetworkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
 //         arbSepoliaToken = new RebaseToken();
@@ -530,7 +630,7 @@ contract CrossChainTest is Test {
 //             remoteTokenAddress: abi.encode(remoteTokenAddress),
 //             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
 //             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
-//         }); 
+//         });
 
 //         TokenPool(localPool).applyChainUpdates(new uint64[](0), chainsToAdd);
 //     }

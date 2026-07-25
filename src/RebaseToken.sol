@@ -2,55 +2,112 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {Roles} from "./libraries/Roles.sol";
+import {Errors} from "./libraries/Errors.sol";
 
 /*
 * @title RebaseToken
 * @author Ciara Nightingale
 * @notice This is a cross-chain rebase token that incentivises users to deposit into a vault and gain interest in rewards.
-* @notice The interest rate in the smart contract can only decrease 
+* @notice The interest rate in the smart contract can only decrease
 * @notice Each will user will have their own interest rate that is the global interest rate at the time of depositing.
 */
-contract RebaseToken is ERC20, Ownable, AccessControl {
-    error RebaseToken__InterestRateCanOnlyDecrease(uint256 currentInterestRate, uint256 newInterestRate);
-
+contract RebaseToken is ERC20, AccessControl, Pausable {
     /////////////////////
     // State Variables
     /////////////////////
 
     uint256 private constant PRECISION_FACTOR = 1e18; // Used to handle fixed-point calculations
-    bytes32 private constant MINT_AND_BURN_ROLE = keccak256("MINT_AND_BURN_ROLE"); // Role for minting and burning tokens (the pool and vault contracts)
     mapping(address => uint256) private s_userInterestRate; // Keeps track of the interest rate of the user at the time they last deposited, bridged or were transferred tokens.
     mapping(address => uint256) private s_userLastUpdatedTimestamp; // the last time a user balance was updated to mint accrued interest.
     uint256 private s_interestRate = 5e10; // this is the global interest rate of the token - when users mint (or receive tokens via transferral), this is the interest rate they will get.
+
+    address private s_pendingAdmin; // two-step DEFAULT_ADMIN_ROLE handover target
+    address private s_currentAdmin; // tracks the sole admin so acceptAdminTransfer can revoke it on handover
 
     /////////////////////
     // Events
     /////////////////////
     event InterestRateSet(uint256 newInterestRate);
+    event AdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
+    event AdminTransferAccepted(address indexed previousAdmin, address indexed newAdmin);
 
     /////////////////////
     // Constructor
     /////////////////////
 
-    constructor() Ownable(msg.sender) ERC20("RebaseToken", "RBT") {}
+    constructor() ERC20("RebaseToken", "RBT") {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        s_currentAdmin = msg.sender;
+    }
 
     /////////////////////
     // Functions
     /////////////////////
 
     /**
-     * @dev grants the mint and burn role to an address. This is only called by the protocol owner.
+     * @dev grants the mint and burn role to an address. This is only called by a protocol admin.
      * @param _address the address to grant the role to
      *
      */
-    function grantMintAndBurnRole(address _address) external onlyOwner {
-        _grantRole(MINT_AND_BURN_ROLE, _address);
+    function grantMintAndBurnRole(address _address) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _grantRole(Roles.MINT_AND_BURN_ROLE, _address);
+    }
+
+    /// @notice Read-only view of the current DEFAULT_ADMIN_ROLE holder.
+    /// @dev Exists solely so CCIP's `RegistryModuleOwnerCustom.registerAdminViaOwner` (the
+    /// version currently live on Sepolia predates `registerAccessControlDefaultAdmin`) can
+    /// verify the caller's authority. Not `Ownable` — there is no `onlyOwner` or
+    /// `transferOwnership`; admin changes only happen via beginAdminTransfer/acceptAdminTransfer.
+    function owner() external view returns (address) {
+        return s_currentAdmin;
+    }
+
+    /// @notice Pauses minting, burning and transfers. Fast, single-signer authority.
+    /// @dev Reads (balanceOf, getInterestRate, etc.) remain callable while paused.
+    function pause() external onlyRole(Roles.PAUSER_ROLE) {
+        _pause();
+    }
+
+    /// @notice Unpauses the token. Deliberately gated behind a separate, slower role than pause()
+    /// so a single compromised/careless PAUSER cannot both freeze and immediately unfreeze the token.
+    function unpause() external onlyRole(Roles.UNPAUSER_ROLE) {
+        _unpause();
+    }
+
+    /// @notice Begins a two-step handover of DEFAULT_ADMIN_ROLE to `_newAdmin`.
+    /// @dev Step 1 of 2. The transfer only completes once `_newAdmin` calls `acceptAdminTransfer`,
+    /// which prevents a fat-fingered address from bricking protocol admin permanently.
+    function beginAdminTransfer(address _newAdmin) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        s_pendingAdmin = _newAdmin;
+        emit AdminTransferStarted(msg.sender, _newAdmin);
+    }
+
+    /// @notice Completes the two-step admin handover. Must be called by the pending admin.
+    /// @dev Grants DEFAULT_ADMIN_ROLE to the caller and revokes it from the previous sole caller
+    /// of `beginAdminTransfer`. Assumes a single current admin, consistent with deployment flow.
+    function acceptAdminTransfer() external {
+        address pendingAdmin = s_pendingAdmin;
+        if (pendingAdmin == address(0)) {
+            revert Errors.NoPendingAdminTransfer();
+        }
+        if (msg.sender != pendingAdmin) {
+            revert Errors.NotPendingAdmin(msg.sender, pendingAdmin);
+        }
+        address previousAdmin = s_currentAdmin;
+        delete s_pendingAdmin;
+        s_currentAdmin = pendingAdmin;
+        _grantRole(DEFAULT_ADMIN_ROLE, pendingAdmin);
+        if (previousAdmin != address(0) && previousAdmin != pendingAdmin) {
+            _revokeRole(DEFAULT_ADMIN_ROLE, previousAdmin);
+        }
+        emit AdminTransferAccepted(previousAdmin, pendingAdmin);
     }
 
     /**
-     * @dev sets the interest rate of the token. This is only called by the protocol owner.
+     * @dev sets the interest rate of the token. This is only called by a rate admin.
      * @param _interestRate the new interest rate
      * @notice only allow the interest rate to decrease but we don't want it to revert in case it's the destination chain that is updating the interest rate (in which case it'll either be the same or larger so it won't update)
      *
@@ -60,10 +117,10 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @param _newInterestRate The new interest rate to set
      * @dev The interest rate can only decrease
      */
-    function setInterestRate(uint256 _newInterestRate) external onlyOwner {
+    function setInterestRate(uint256 _newInterestRate) external onlyRole(Roles.RATE_ADMIN_ROLE) {
         // Set the interest rate
         if (_newInterestRate >= s_interestRate) {
-            revert RebaseToken__InterestRateCanOnlyDecrease(s_interestRate, _newInterestRate);
+            revert Errors.RebaseToken__InterestRateCanOnlyDecrease(s_interestRate, _newInterestRate);
         }
         s_interestRate = _newInterestRate;
         emit InterestRateSet(_newInterestRate);
@@ -85,7 +142,11 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
     /// @param _value The number of tokens to mint.
     /// @param _userInterestRate The interest rate of the user. This is either the contract interest rate if the user is depositing or the user's interest rate from the source token if the user is bridging.
     /// @dev this function increases the total supply.
-    function mint(address _to, uint256 _value, uint256 _userInterestRate) public onlyRole(MINT_AND_BURN_ROLE) {
+    function mint(address _to, uint256 _value, uint256 _userInterestRate)
+        public
+        onlyRole(Roles.MINT_AND_BURN_ROLE)
+        whenNotPaused
+    {
         // Mints any existing interest that has accrued since the last time the user's balance was updated.
         _mintAccruedInterest(_to);
         // Sets the users interest rate to either their bridged value if they are bridging or to the current interest rate if they are depositing.
@@ -97,7 +158,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
     /// @param _from The address to burn the tokens from.
     /// @param _value The number of tokens to be burned
     /// @dev this function decreases the total supply.
-    function burn(address _from, uint256 _value) public onlyRole(MINT_AND_BURN_ROLE) {
+    function burn(address _from, uint256 _value) public onlyRole(Roles.MINT_AND_BURN_ROLE) whenNotPaused {
         // Mints any existing interest that has accrued since the last time the user's balance was updated.
         _mintAccruedInterest(_from);
         _burn(_from, _value);
@@ -127,7 +188,7 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @return true if the transfer was successful
      *
      */
-    function transfer(address _recipient, uint256 _amount) public override returns (bool) {
+    function transfer(address _recipient, uint256 _amount) public override whenNotPaused returns (bool) {
         // accumulates the balance of the user so it is up to date with any interest accumulated.
         if (_amount == type(uint256).max) {
             _amount = balanceOf(msg.sender);
@@ -149,7 +210,12 @@ contract RebaseToken is ERC20, Ownable, AccessControl {
      * @return true if the transfer was successful
      *
      */
-    function transferFrom(address _sender, address _recipient, uint256 _amount) public override returns (bool) {
+    function transferFrom(address _sender, address _recipient, uint256 _amount)
+        public
+        override
+        whenNotPaused
+        returns (bool)
+    {
         if (_amount == type(uint256).max) {
             _amount = balanceOf(_sender);
         }

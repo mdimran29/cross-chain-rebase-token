@@ -6,15 +6,16 @@ import {console2} from "forge-std/console2.sol";
 
 import {CCIPLocalSimulatorFork, Register} from "@chainlink-local/src/ccip/CCIPLocalSimulatorFork.sol";
 
-import {IERC20} from "@ccip/contracts/src/v0.8/vendor/openzeppelin-solidity/v4.8.3/contracts/token/ERC20/IERC20.sol";
-import {RegistryModuleOwnerCustom} from "@ccip/contracts/src/v0.8/ccip/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
-import {TokenAdminRegistry} from "@ccip/contracts/src/v0.8/ccip/tokenAdminRegistry/TokenAdminRegistry.sol";
+import {IERC20} from "@openzeppelin/contracts@4.8.3/token/ERC20/IERC20.sol";
+import {RegistryModuleOwnerCustom} from "@ccip/contracts/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
+import {TokenAdminRegistry} from "@ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
 
 import {RebaseToken} from "../src/RebaseToken.sol";
 import {RebaseTokenPool} from "../src/RebaseTokenPool.sol";
 import {Vault} from "../src/Vault.sol";
 
 import {IRebaseToken} from "../src/interfaces/IRebaseToken.sol";
+import {Roles} from "../src/libraries/Roles.sol";
 
 contract TokenAndPoolDeployer is Script {
     function run() public returns (RebaseToken token, RebaseTokenPool pool) {
@@ -23,7 +24,11 @@ contract TokenAndPoolDeployer is Script {
         vm.startBroadcast();
         token = new RebaseToken();
         pool = new RebaseTokenPool(
-            IERC20(address(token)), new address[](0), networkDetails.rmnProxyAddress, networkDetails.routerAddress
+            IERC20(address(token)),
+            new address[](0),
+            networkDetails.rmnProxyAddress,
+            networkDetails.routerAddress,
+            networkDetails.chainSelector
         );
         token.grantMintAndBurnRole(address(pool));
         RegistryModuleOwnerCustom(networkDetails.registryModuleOwnerCustomAddress).registerAdminViaOwner(address(token));
@@ -45,4 +50,37 @@ contract VaultDeployer is Script {
 
         console2.log("vault:", address(vault));
     }
-}   
+}
+
+/// @notice Wires the Phase-0 role taxonomy on the token/vault and hands admin over to
+/// the intended protocol admin, renouncing the deployer's own DEFAULT_ADMIN_ROLE.
+/// @dev Uses the two-step transfer (beginAdminTransfer/acceptAdminTransfer) on RebaseToken
+/// and single-step grant+renounce on Vault (Vault has no external actors depending on its
+/// admin the way the bridged token does, so two-step isn't load-bearing there yet).
+contract ConfigureRolesScript is Script {
+    function run(address _rebaseToken, address _vault, address _admin, address _pauser, address _unpauser) public {
+        RebaseToken token = RebaseToken(_rebaseToken);
+        Vault vault = Vault(payable(_vault));
+
+        vm.startBroadcast();
+        token.grantRole(Roles.PAUSER_ROLE, _pauser);
+        token.grantRole(Roles.UNPAUSER_ROLE, _unpauser);
+        token.grantRole(Roles.RATE_ADMIN_ROLE, _admin);
+        vault.grantRole(Roles.PAUSER_ROLE, _pauser);
+
+        // Two-step admin handover on the token: start here, `_admin` must call
+        // acceptAdminTransfer() itself to complete it.
+        token.beginAdminTransfer(_admin);
+
+        // Vault admin handover: single-step, then renounce.
+        vault.grantRole(vault.DEFAULT_ADMIN_ROLE(), _admin);
+        vault.renounceRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender);
+        vm.stopBroadcast();
+
+        require(!vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), msg.sender), "deployer still has vault admin");
+        require(vault.hasRole(vault.DEFAULT_ADMIN_ROLE(), _admin), "vault admin not granted");
+        require(token.hasRole(token.DEFAULT_ADMIN_ROLE(), msg.sender), "token admin transfer not yet accepted");
+        // NOTE: token admin handover only completes (and deployer admin is revoked) once
+        // `_admin` calls acceptAdminTransfer() from its own account.
+    }
+}
