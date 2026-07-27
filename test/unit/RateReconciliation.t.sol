@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {RebaseToken} from "../../src/RebaseToken.sol";
+import {InterestRateController} from "../../src/interest/InterestRateController.sol";
 import {Roles} from "../../src/libraries/Roles.sol";
 
 /// @notice L10: mint() must never let a bridge-in (or any mint) raise a user's rate above the
@@ -15,7 +16,9 @@ contract RateReconciliationTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        token = new RebaseToken();
+        InterestRateController rateController = new InterestRateController(5e10, owner);
+        token = new RebaseToken(address(rateController));
+        rateController.grantRole(Roles.RATE_ADMIN_ROLE, address(token));
         token.grantMintAndBurnRole(minter);
         token.grantRole(Roles.RATE_ADMIN_ROLE, owner);
         vm.stopPrank();
@@ -31,9 +34,16 @@ contract RateReconciliationTest is Test {
         assertEq(token.getUserInterestRate(user), currentGlobalRate);
     }
 
+    /// @dev Phase 4: a bridged rate only takes effect exactly if a local tier already exists at
+    /// that rate (governance opens tiers via `setInterestRate` — see `MAX_TIERS` design note on
+    /// `RebaseToken`). Here the destination chain's governance has already lowered its own rate
+    /// to `lowerRate` at some point, so the tier exists locally and the bridged value is honored
+    /// exactly, not merely approximated.
     function testZeroBalanceMintAdoptsBridgedRateWhenBelowGlobalRate() public {
         uint256 currentGlobalRate = token.getInterestRate();
         uint256 lowerRate = currentGlobalRate / 2;
+        vm.prank(owner);
+        token.setInterestRate(lowerRate);
 
         vm.prank(minter);
         token.mint(user, 100, lowerRate);
@@ -42,6 +52,11 @@ contract RateReconciliationTest is Test {
     }
 
     function testNonZeroBalanceMintNeverRaisesExistingRate() public {
+        vm.startPrank(owner);
+        token.setInterestRate(3e10);
+        token.setInterestRate(1e10);
+        vm.stopPrank();
+
         // User already holds a lower rate from an earlier mint/deposit.
         vm.prank(minter);
         token.mint(user, 100, 1e10);
@@ -56,9 +71,15 @@ contract RateReconciliationTest is Test {
     }
 
     function testNonZeroBalanceMintCanLowerExistingRate() public {
+        vm.prank(owner);
+        token.setInterestRate(4e10);
+
         vm.prank(minter);
         token.mint(user, 100, 4e10);
         assertEq(token.getUserInterestRate(user), 4e10);
+
+        vm.prank(owner);
+        token.setInterestRate(1e10);
 
         vm.prank(minter);
         token.mint(user, 50, 1e10);

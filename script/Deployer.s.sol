@@ -15,16 +15,24 @@ import {RebaseTokenPool} from "../src/RebaseTokenPool.sol";
 import {Vault} from "../src/Vault.sol";
 import {Treasury} from "../src/treasury/Treasury.sol";
 import {WithdrawalQueue} from "../src/vault/WithdrawalQueue.sol";
+import {InterestRateController} from "../src/interest/InterestRateController.sol";
 
 import {IRebaseToken} from "../src/interfaces/IRebaseToken.sol";
 import {Roles} from "../src/libraries/Roles.sol";
 
 contract TokenAndPoolDeployer is Script {
-    function run() public returns (RebaseToken token, RebaseTokenPool pool) {
+    /// @notice Default global rate carried over from the pre-Phase-4 constant (`5e10`).
+    uint256 public constant DEFAULT_INITIAL_RATE = 5e10;
+
+    function run() public returns (RebaseToken token, RebaseTokenPool pool, InterestRateController controller) {
         CCIPLocalSimulatorFork ccipLocalSimulatorFork = new CCIPLocalSimulatorFork();
         Register.NetworkDetails memory networkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
         vm.startBroadcast();
-        token = new RebaseToken();
+        controller = new InterestRateController(DEFAULT_INITIAL_RATE, msg.sender);
+        token = new RebaseToken(address(controller));
+        // The token calls back into the controller on every `setInterestRate`, so it needs the
+        // controller's own RATE_ADMIN_ROLE (a separate AccessControl instance from the token's).
+        controller.grantRole(Roles.RATE_ADMIN_ROLE, address(token));
         pool = new RebaseTokenPool(
             IERC20(address(token)),
             new address[](0),

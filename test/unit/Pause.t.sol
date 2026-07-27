@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 
 import {RebaseToken} from "../../src/RebaseToken.sol";
+import {InterestRateController} from "../../src/interest/InterestRateController.sol";
 import {Vault} from "../../src/Vault.sol";
 import {Treasury} from "../../src/treasury/Treasury.sol";
 import {IRebaseToken} from "../../src/interfaces/IRebaseToken.sol";
@@ -12,6 +13,7 @@ import {Errors} from "../../src/libraries/Errors.sol";
 
 contract PauseTest is Test {
     RebaseToken public rebaseToken;
+    InterestRateController public rateController;
     Vault public vault;
     Treasury public treasury;
 
@@ -23,7 +25,9 @@ contract PauseTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        rebaseToken = new RebaseToken();
+        rateController = new InterestRateController(5e10, owner);
+        rebaseToken = new RebaseToken(address(rateController));
+        rateController.grantRole(Roles.RATE_ADMIN_ROLE, address(rebaseToken));
         treasury = new Treasury();
         vault = new Vault(IRebaseToken(address(rebaseToken)), address(treasury));
         rebaseToken.grantMintAndBurnRole(address(vault));

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Errors} from "../libraries/Errors.sol";
+import {Roles} from "../libraries/Roles.sol";
 
 interface IBreakerPausable {
     function pauseBridgeOut() external;
@@ -78,6 +79,15 @@ contract CircuitBreaker is AccessControl {
                 _trip();
             }
         }
+    }
+
+    /// @notice Lets the Emergency Council force a trip without waiting on velocity monitoring —
+    /// "breaker-trip rights" per the Phase 3 governance split (roadmap §7.3): the Council can
+    /// only ever pause faster, never move funds or change parameters, so this is granted the same
+    /// `PAUSER_ROLE` the Council already holds directly on the protected contracts.
+    function tripManually() external onlyRole(Roles.PAUSER_ROLE) {
+        if (tripped) revert Errors.CircuitBreaker__AlreadyTripped();
+        _trip();
     }
 
     function _trip() internal {

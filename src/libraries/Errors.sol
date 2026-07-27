@@ -49,4 +49,12 @@ library Errors {
     // ---- CircuitBreaker ----
     error CircuitBreaker__StillTripped(uint256 cooldownEndsAt);
     error CircuitBreaker__NotTripped();
+    error CircuitBreaker__AlreadyTripped();
+
+    // ---- InterestRateController ----
+    error RateController__InvalidBand(uint256 floor, uint256 cap);
+
+    // ---- RebaseToken v2 (index model) ----
+    error RebaseToken__TierCapExceeded(uint256 cap);
+    error RebaseToken__RateOverflow(uint256 rate);
 }

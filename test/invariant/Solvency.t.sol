@@ -3,10 +3,12 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {RebaseToken} from "../../src/RebaseToken.sol";
+import {InterestRateController} from "../../src/interest/InterestRateController.sol";
 import {Vault} from "../../src/Vault.sol";
 import {Treasury} from "../../src/treasury/Treasury.sol";
 import {WithdrawalQueue} from "../../src/vault/WithdrawalQueue.sol";
 import {IRebaseToken} from "../../src/interfaces/IRebaseToken.sol";
+import {Roles} from "../../src/libraries/Roles.sol";
 
 /// @notice Bounded-actor stateful handler for the Solvency invariant. Deposits/redemptions/
 /// transfers/time-warps are all clamped so a single invariant run can never plausibly exceed the
@@ -69,6 +71,10 @@ contract SolvencyHandler is Test {
             sum += token.balanceOf(actors[i]);
         }
     }
+
+    function actorCount() external view returns (uint256) {
+        return actors.length;
+    }
 }
 
 /// @notice Phase 2's solvency invariant: backing must cover every actor's true, live claim after
@@ -94,7 +100,9 @@ contract SolvencyInvariantTest is Test {
 
     function setUp() public {
         vm.startPrank(owner);
-        token = new RebaseToken();
+        InterestRateController rateController = new InterestRateController(5e10, owner);
+        token = new RebaseToken(address(rateController));
+        rateController.grantRole(Roles.RATE_ADMIN_ROLE, address(token));
         treasury = new Treasury();
         vault = new Vault(IRebaseToken(address(token)), address(treasury));
         queue = new WithdrawalQueue(address(vault));
@@ -117,8 +125,13 @@ contract SolvencyInvariantTest is Test {
     }
 
     function invariant_liabilitiesNeverExceedLiveActorSum() public view {
-        // totalSupply() only counts materialized (touched) principal, so it must always be
-        // <= the true live sum — a sanity check on the approximation itself, not on solvency.
-        assertLe(vault.liabilities(), handler.sumActorBalances());
+        // Phase 4 index model: totalSupply() sums each tier's aggregate `totalShares * index /
+        // RAY` (one floor per tier), while sumActorBalances() sums each individual user's
+        // `shares * index / RAY` (one floor per user). Flooring per-user can discard up to
+        // (usersInTier - 1) wei more than a single tier-level floor, so totalSupply() may
+        // legitimately exceed the live per-user sum by a few wei of rounding dust — bounded by
+        // the handler's fixed actor count, never by economic value. This is the "rounding-error
+        // invariant" the roadmap (§5.6) calls for: it bounds the *drift*, not just its sign.
+        assertLe(vault.liabilities(), handler.sumActorBalances() + handler.actorCount());
     }
 }

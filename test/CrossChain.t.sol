@@ -13,6 +13,8 @@ import {IRouterClient} from "@ccip/contracts/interfaces/IRouterClient.sol";
 import {Client} from "@ccip/contracts/libraries/Client.sol";
 
 import {RebaseToken} from "../src/RebaseToken.sol";
+import {InterestRateController} from "../src/interest/InterestRateController.sol";
+import {Roles} from "../src/libraries/Roles.sol";
 
 import {RebaseTokenPool} from "../src/RebaseTokenPool.sol";
 
@@ -72,7 +74,9 @@ contract CrossChainTest is Test {
         //(sourceRebaseToken, sourcePool, vault) = sourceDeployer.run(owner);
         sepoliaNetworkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
         vm.startPrank(owner);
-        sourceRebaseToken = new RebaseToken();
+        InterestRateController sourceRateController = new InterestRateController(5e10, owner);
+        sourceRebaseToken = new RebaseToken(address(sourceRateController));
+        sourceRateController.grantRole(Roles.RATE_ADMIN_ROLE, address(sourceRebaseToken));
         console.log("source rebase token address");
         console.log(address(sourceRebaseToken));
         console.log("Deploying token pool on Sepolia");
@@ -108,7 +112,9 @@ contract CrossChainTest is Test {
         vm.startPrank(owner);
         console.log("Deploying token on Arbitrum");
         arbSepoliaNetworkDetails = ccipLocalSimulatorFork.getNetworkDetails(block.chainid);
-        destRebaseToken = new RebaseToken();
+        InterestRateController destRateController = new InterestRateController(5e10, owner);
+        destRebaseToken = new RebaseToken(address(destRateController));
+        destRateController.grantRole(Roles.RATE_ADMIN_ROLE, address(destRebaseToken));
         console.log("dest rebase token address");
         console.log(address(destRebaseToken));
         // Deploy the token pool on Arbitrum

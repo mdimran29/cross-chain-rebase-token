@@ -8,6 +8,7 @@ import {RateLimiter} from "@ccip/contracts/libraries/RateLimiter.sol";
 import {TokenPool} from "@ccip/contracts/pools/TokenPool.sol";
 
 import {RebaseToken} from "../../src/RebaseToken.sol";
+import {InterestRateController} from "../../src/interest/InterestRateController.sol";
 import {RebaseTokenPool} from "../../src/RebaseTokenPool.sol";
 import {MessageCodec} from "../../src/bridge/MessageCodec.sol";
 import {CircuitBreaker} from "../../src/safety/CircuitBreaker.sol";
@@ -38,7 +39,9 @@ contract BridgeHardeningTest is Test {
         vm.mockCall(rmnProxy, abi.encodeWithSignature("isCursed(bytes16)"), abi.encode(false));
 
         vm.startPrank(owner);
-        token = new RebaseToken();
+        InterestRateController rateController = new InterestRateController(5e10, owner);
+        token = new RebaseToken(address(rateController));
+        rateController.grantRole(Roles.RATE_ADMIN_ROLE, address(token));
         pool = new RebaseTokenPool(IERC20(address(token)), new address[](0), rmnProxy, router, LOCAL_SELECTOR);
         token.grantMintAndBurnRole(address(pool));
         pool.grantRole(Roles.LANE_ADMIN_ROLE, owner);
